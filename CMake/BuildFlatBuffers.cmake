@@ -188,7 +188,8 @@ function(flatbuffers_generate_headers)
   set(one_value_args
     "TARGET"
     "INCLUDE_PREFIX"
-    "BINARY_SCHEMAS_DIR")
+    "BINARY_SCHEMAS_DIR"
+    "RELATIVE")
   set(multi_value_args
     "SCHEMAS"
     "INCLUDE"
@@ -220,40 +221,65 @@ function(flatbuffers_generate_headers)
   # Create a directory to place the generated code.
   set(generated_target_dir "${CMAKE_CURRENT_BINARY_DIR}/${FLATBUFFERS_GENERATE_HEADERS_TARGET}")
   set(generated_include_dir "${generated_target_dir}")
-  if (NOT ${FLATBUFFERS_GENERATE_HEADERS_INCLUDE_PREFIX} STREQUAL "")
+  if (NOT "${FLATBUFFERS_GENERATE_HEADERS_INCLUDE_PREFIX}" STREQUAL "")
     set(generated_include_dir "${generated_include_dir}/${FLATBUFFERS_GENERATE_HEADERS_INCLUDE_PREFIX}")
     list(APPEND FLATBUFFERS_GENERATE_HEADERS_FLAGS 
          "--include-prefix" ${FLATBUFFERS_GENERATE_HEADERS_INCLUDE_PREFIX})
   endif()
 
+  # If we are generating headers relative to a path, ensure we add --keep-prefix.
+  if (NOT "${FLATBUFFERS_GENERATE_HEADERS_RELATIVE}" STREQUAL "")
+    list(APPEND FLATBUFFERS_GENERATE_HEADERS_FLAGS "--keep-prefix")
+  endif()
+
   # Create rules to generate the code for each schema.
   foreach(schema ${FLATBUFFERS_GENERATE_HEADERS_SCHEMAS})
     get_filename_component(filename ${schema} NAME_WE)
-    set(generated_include "${generated_include_dir}/${filename}_generated.h")
+    # If we are using relative paths, get the relative path if there is one.
+    set(relative_schema_directory)
+    if (NOT "${FLATBUFFERS_GENERATE_HEADERS_RELATIVE}" STREQUAL "")
+      get_filename_component(schema_directory ${schema} DIRECTORY)
+      file(RELATIVE_PATH relative_schema_directory "${FLATBUFFERS_GENERATE_HEADERS_RELATIVE}" "${schema_directory}")
+    endif()
+
+    # If a relative path was found, append it to the target directory.
+    if (NOT "${relative_schema_directory}" STREQUAL "")
+      set(generated_header_dir "${generated_include_dir}/${relative_schema_directory}")
+    else()
+      set(generated_header_dir "${generated_include_dir}")
+    endif()
+    set(generated_header "${generated_header_dir}/${filename}_generated.h")
+
     add_custom_command(
-      OUTPUT ${generated_include}
+      OUTPUT "${generated_header}"
       COMMAND ${FLATC} ${FLATC_ARGS}
-      -o ${generated_include_dir}
+      -o "${generated_header_dir}"
       ${include_params}
-      -c ${schema}
+      -c "${schema}"
       ${FLATBUFFERS_GENERATE_HEADERS_FLAGS}
       DEPENDS ${FLATC_TARGET} ${schema}
       WORKING_DIRECTORY "${working_dir}")
-    list(APPEND all_generated_header_files ${generated_include})
+    list(APPEND all_generated_header_files "${generated_header}")
 
     # Geneate the binary flatbuffers schemas if instructed to.
     if (NOT ${FLATBUFFERS_GENERATE_HEADERS_BINARY_SCHEMAS_DIR} STREQUAL "")
-      set(binary_schema
-          "${FLATBUFFERS_GENERATE_HEADERS_BINARY_SCHEMAS_DIR}/${filename}.bfbs")
+      # As above, if a relative path was found, append it to the target directory.
+      if (NOT "${relative_schema_directory}" STREQUAL "")
+        set(binary_schema_dir "${FLATBUFFERS_GENERATE_HEADERS_BINARY_SCHEMAS_DIR}/${relative_schema_directory}")
+      else()
+        set(binary_schema_dir "${FLATBUFFERS_GENERATE_HEADERS_BINARY_SCHEMAS_DIR}")
+      endif()
+      set(binary_schema "${binary_schema_dir}/${filename}.bfbs")
+
       add_custom_command(
-        OUTPUT ${binary_schema}
+        OUTPUT "${binary_schema}"
         COMMAND ${FLATC} -b --schema
-        -o ${FLATBUFFERS_GENERATE_HEADERS_BINARY_SCHEMAS_DIR}
+        -o "${binary_schema_dir}"
         ${include_params}
         ${schema}
-        DEPENDS ${FLATC_TARGET} ${schema}
+        DEPENDS ${FLATC_TARGET} "${schema}"
         WORKING_DIRECTORY "${working_dir}")
-      list(APPEND all_generated_binary_files ${binary_schema})
+      list(APPEND all_generated_binary_files "${binary_schema}")
     endif()
   endforeach()
 
@@ -330,9 +356,11 @@ function(flatbuffers_generate_binary_files)
   set(one_value_args
     "TARGET"
     "SCHEMA"
-    "OUTPUT_DIR")
+    "OUTPUT_DIR"
+    "RELATIVE")
   set(multi_value_args
     "JSON_FILES"
+    "JSON_FILES_ROOT"
     "INCLUDE"
     "FLAGS")
   cmake_parse_arguments(
@@ -362,11 +390,25 @@ function(flatbuffers_generate_binary_files)
   # Create rules to generate the flatbuffers binary for each json file.
   foreach(json_file ${FLATBUFFERS_GENERATE_BINARY_FILES_JSON_FILES})
     get_filename_component(filename ${json_file} NAME_WE)
-    set(generated_binary_file "${FLATBUFFERS_GENERATE_BINARY_FILES_OUTPUT_DIR}/${filename}.bin")
+    # If we are using relative paths, get the relative path if there is one.
+    set(relative_json_directory)
+    if (NOT "${FLATBUFFERS_GENERATE_BINARY_FILES_RELATIVE}" STREQUAL "")
+      get_filename_component(json_directory ${json_file} DIRECTORY)
+      file(RELATIVE_PATH relative_json_directory "${FLATBUFFERS_GENERATE_BINARY_FILES_RELATIVE}" "${json_directory}")
+    endif()
+
+    # If a relative path was found, append it to the target directory.
+    if (NOT "${relative_json_directory}" STREQUAL "")
+      set(generated_binary_dir "${FLATBUFFERS_GENERATE_BINARY_FILES_OUTPUT_DIR}/${relative_json_directory}")
+    else()
+      set(generated_binary_dir "${FLATBUFFERS_GENERATE_BINARY_FILES_OUTPUT_DIR}")
+    endif()
+    set(generated_binary_file "${generated_binary_dir}/${filename}.bin")
+
     add_custom_command(
-      OUTPUT ${generated_binary_file}
+      OUTPUT "${generated_binary_file}"
       COMMAND ${FLATC} ${FLATC_ARGS}
-      -o ${FLATBUFFERS_GENERATE_BINARY_FILES_OUTPUT_DIR}
+      -o "${generated_binary_dir}"
       ${include_params}
       -b ${FLATBUFFERS_GENERATE_BINARY_FILES_SCHEMA} ${json_file}
       ${FLATBUFFERS_GENERATE_BINARY_FILES_FLAGS}
